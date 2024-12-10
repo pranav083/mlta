@@ -1,6 +1,6 @@
 # Configurations
 
-KERNEL_SRC="$(pwd)/../kernel/linux-5.1"
+KERNEL_SRC="$(pwd)/../kernel/linux-6.1.1"
 IRDUMPER="$(pwd)/IRDumper/build/lib/libDumper.so"
 CLANG="$(pwd)/llvm-project/prefix/bin/clang"
 CONFIG="defconfig"

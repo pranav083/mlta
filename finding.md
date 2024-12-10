@@ -89,10 +89,55 @@ Total 1 file(s)
 mighty@ubuntu22:~/mlta$ ./build/lib/kanalyzer @mlta_test_code/test-high/bc.list
 Total 1 file(s)
 [CallGraph] Initializing 1 modules #0 Initializing: /home/mighty/mlta/mlta_test_code/test-high/multilayer_fp.bc
-kanalyzer: /home/mighty/mlta/llvm-project/prefix/include/llvm/IR/Type.h:381: llvm::Type *llvm::Type::getNonOpaquePointerElementType() const: Assertion `NumContainedTys && "Attempting to get element type of opaque pointer"' failed.
- #0 0x00005969bce592e5 PrintStackTraceSignalHandler(void*) Signals.cpp:0:0
- #1 0x00005969bce569de SignalHandler(int) Signals.cpp:0:0
-...
+
+kanalyzer: /home/mighty/mlta/llvm-project/prefix/include/llvm/IR/Type.h:381: 
+llvm::Type *llvm::Type::getNonOpaquePointerElementType() const: 
+Assertion `NumContainedTys && "Attempting to get element type of opaque pointer"' failed.
+
+ #0  0x00005969bce592e5 PrintStackTraceSignalHandler(void*) Signals.cpp:0:0
+ #1  0x00005969bce569de SignalHandler(int) Signals.cpp:0:0
+ #2  0x00007199cb242520 (/lib/x86_64-linux-gnu/libc.so.6+0x42520)
+ #3  0x00007199cb2969fc pthread_kill (/lib/x86_64-linux-gnu/libc.so.6+0x969fc)
+ #4  0x00007199cb242476 gsignal (/lib/x86_64-linux-gnu/libc.so.6+0x42476)
+ #5  0x00007199cb2287f3 abort (/lib/x86_64-linux-gnu/libc.so.6+0x287f3)
+ #6  0x00007199cb22871b (/lib/x86_64-linux-gnu/libc.so.6+0x2871b)
+ #7  0x00007199cb239e96 (/lib/x86_64-linux-gnu/libc.so.6+0x39e96)
+ #8  0x00005969bcd9ceb7 llvm::Type::getNonOpaquePointerElementType() const 
+      /home/mighty/mlta/llvm-project/prefix/include/llvm/IR/Type.h:0:5
+ #9  0x00005969bcd990f5 llvm::Type::getPointerElementType() const 
+      /home/mighty/mlta/llvm-project/prefix/include/llvm/IR/Type.h:372:5
+#10  0x00005969bcd95499 MLTA::getBaseType(llvm::Value*, 
+      std::set<llvm::Value*, std::less<llvm::Value*>, 
+      std::allocator<llvm::Value*> >&) 
+      /home/mighty/mlta/src/lib/MLTA.cc:891:19
+#11  0x00005969bcd95c5d MLTA::getBaseTypeChain(std::__cxx11::list<
+      std::pair<llvm::Type*, int>, 
+      std::allocator<std::pair<llvm::Type*, int> > >&, 
+      llvm::Value*, bool&) 
+      /home/mighty/mlta/src/lib/MLTA.cc:831:14
+#12  0x00005969bcd94027 MLTA::confineTargetFunction(llvm::Value*, llvm::Function*) 
+      /home/mighty/mlta/src/lib/MLTA.cc:680:2
+#13  0x00005969bcd93bec MLTA::typeConfineInFunction(llvm::Function*) 
+      /home/mighty/mlta/src/lib/MLTA.cc:470:3
+#14  0x00005969bcd86830 CallGraphPass::doInitialization(llvm::Module*) 
+      /home/mighty/mlta/src/lib/CallGraph.cc:205:3
+#15  0x00005969bcd76cb2 IterativeModulePass::run(
+      std::vector<std::pair<llvm::Module*, llvm::StringRef>, 
+      std::allocator<std::pair<llvm::Module*, llvm::StringRef> > >&) 
+      /home/mighty/mlta/src/lib/Analyzer.cc:61:13
+#16  0x00005969bcd77973 main 
+      /home/mighty/mlta/src/lib/Analyzer.cc:172:9
+#17  0x00007199cb229d90 (/lib/x86_64-linux-gnu/libc.so.6+0x29d90)
+#18  0x00007199cb229e40 __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x29e40)
+#19  0x00005969bcd3eda5 _start (./build/lib/kanalyzer+0x77da5)
+
+PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ 
+and include the crash backtrace.
+
+Stack dump:
+0.	Program arguments: ./build/lib/kanalyzer @mlta_test_code/test-high/bc.list
+Aborted (core dumped)
+
 
 ```
 
