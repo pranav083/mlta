@@ -1,0 +1,21 @@
+# Define the compiler
+CC = gcc
+
+# Compiler flags
+CFLAGS = -Wall -Wextra -O2
+
+# Target executable name
+TARGET = multilayer_fp
+
+# Build rules
+all: $(TARGET)
+
+$(TARGET): multilayer_fp.c
+	$(CC) $(CFLAGS) -o $(TARGET) multilayer_fp.c
+
+clean:
+	rm -f $(TARGET)
+
+
+KBUILD_USERCFLAGS += -Wno-error -g -Xclang -no-opaque-pointers -Xclang -flegacy-pass-manager -Xclang -load -Xclang /home/mighty/mlta/IRDumper/build/lib/libDumper.so
+KBUILD_CFLAGS += -Wno-error -g -Xclang -no-opaque-pointers -Xclang -flegacy-pass-manager -Xclang -load -Xclang /home/mighty/mlta/IRDumper/build/lib/libDumper.so
