@@ -184,7 +184,28 @@ mighty@ubuntu22:~/mlta$ ./build/lib/kanalyzer @bc.list
 # Number of one-layer targets: 			269545
 
 ```
+### **Kernel Analysis: Linux 6.1.1**
 
+#### **Command and Output**
+
+```bash
+mighty@ubuntu22:~/mlta$ ./build/lib/kanalyzer @bc.list
+[CallGraph] Postprocessing ...
+[CallGraph] Done!
+
+
+@@ Total number of final callees: 343648.
+############## Result Statistics ##############
+# Number of indirect calls: 			19515
+# Number of indirect calls with targets: 	15506
+# Number of indirect-call targets: 		343648
+# Number of address-taken functions: 		38263
+# Number of multi-layer calls: 			14874
+# Number of multi-layer targets: 		50018
+# Number of one-layer calls: 			3800
+# Number of one-layer targets: 			293630
+
+```
 #### **Findings**
 
 -   **Scale:** Analyzed the Linux kernel 5.1 with over 2,000 modules.
