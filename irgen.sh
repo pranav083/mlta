@@ -1,6 +1,6 @@
 # Configurations
 
-KERNEL_SRC="$(pwd)/../kernels/linux"
+KERNEL_SRC="$(pwd)/../kernel/linux-5.1"
 IRDUMPER="$(pwd)/IRDumper/build/lib/libDumper.so"
 CLANG="$(pwd)/llvm-project/prefix/bin/clang"
 CONFIG="defconfig"
@@ -11,7 +11,7 @@ NEW_CMD="\n\n\
 KBUILD_USERCFLAGS += -Wno-error -g -Xclang -no-opaque-pointers -Xclang -flegacy-pass-manager -Xclang -load -Xclang $IRDUMPER\nKBUILD_CFLAGS += -Wno-error -g -Xclang -no-opaque-pointers -Xclang -flegacy-pass-manager -Xclang -load -Xclang $IRDUMPER"
 
 # Back up Linux Makefile
-#cp $KERNEL_SRC/Makefile $KERNEL_SRC/Makefile.bak
+cp $KERNEL_SRC/Makefile $KERNEL_SRC/Makefile.bak
 
 if [ ! -f "$KERNEL_SRC/Makefile.bak" ]; then
 	echo "Back up Linux Makefile first"
@@ -26,4 +26,3 @@ cd $KERNEL_SRC && make $CONFIG
 echo $CLANG
 echo $NEW_CMD
 make CC=$CLANG -j`nproc` -k -i
-

@@ -29,7 +29,8 @@ extern int ENABLE_MLTA;
 #define MAP_DECLARATION_FUNCTION
 #define PRINT_ICALL_TARGET
 // Path to source code
-#define SOURCE_CODE_PATH "/home/kjlu/projects/kernels/linux-5.1"
+// #define SOURCE_CODE_PATH "/home/mighty/kernel/linux-5.1"
+#define SOURCE_CODE_PATH "/home/mighty/kernel/linux-simple"
 //#define PRINT_SOURCE_LINE
 //#define MLTA_FIELD_INSENSITIVE
 
