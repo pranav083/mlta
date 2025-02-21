@@ -26,41 +26,53 @@ bool LegacyIRDumper::runOnModule(Module &M) {
 	return false;
 }
 
-char LegacyIRDumper::ID = 0;
-static RegisterPass<LegacyIRDumper> X("IRDumper", "IRDumper pass", false, false);
-
-static void register_pass(const PassManagerBuilder &PMB,
-		legacy::PassManagerBase &PM) {
-	PM.add(new LegacyIRDumper());
-}
-
-/* Legacy PM Registration */
-static RegisterStandardPasses RegisterIRDumperPass(
-		PassManagerBuilder::EP_OptimizerLast, register_pass);
-static RegisterStandardPasses RegisterRDumperPassL0(
-		PassManagerBuilder::EP_EnabledOnOptLevel0, register_pass);
-
+/* New PM Registration */
+llvm::PassPluginLibraryInfo getIRDumperPluginInfo() {
+	return {LLVM_PLUGIN_API_VERSION, "IRDumper", LLVM_VERSION_STRING,
+	  [](PassBuilder &PB) {
+		PB.registerPipelineParsingCallback(
+			[](StringRef Name, ModulePassManager &PM,
+				ArrayRef<PassBuilder::PipelineElement>) {
+			  if (Name == "IRDumper") {
+				PM.addPass(IRDumper());
+				return true;
+			  }
+			  return false;
+			});
+		
+		// Register at specific pipeline points
+		PB.registerOptimizerLastEPCallback(
+			[](ModulePassManager &PM, OptimizationLevel Level) {
+			  PM.addPass(IRDumper());
+			});
+			
+		PB.registerPipelineStartEPCallback(
+			[](ModulePassManager &PM, OptimizationLevel Level) {
+			  PM.addPass(IRDumper()); 
+			});
+	  }};
+  }
 
 PreservedAnalyses IRDumper::run(Module &M, ModuleAnalysisManager &) {
 	saveModule(M, M.getName());
     return PreservedAnalyses::all();
 }
 
-/* New PM Registration */
-llvm::PassPluginLibraryInfo getIRDumperPluginInfo() {
-	return {LLVM_PLUGIN_API_VERSION, "IRDumper", LLVM_VERSION_STRING,
-		[](PassBuilder &PB) {
-			PB.registerPipelineParsingCallback(
-					[](StringRef Name, llvm::ModulePassManager &PM,
-						ArrayRef<llvm::PassBuilder::PipelineElement>) {
-					if (Name == "IRDumper") {
-					PM.addPass(IRDumper());
-					return true;
-					}
-					return false;
-					});
-		}};
-}
+// /* New PM Registration */
+// llvm::PassPluginLibraryInfo getIRDumperPluginInfo() {
+// 	return {LLVM_PLUGIN_API_VERSION, "IRDumper", LLVM_VERSION_STRING,
+// 		[](PassBuilder &PB) {
+// 			PB.registerPipelineParsingCallback(
+// 					[](StringRef Name, llvm::ModulePassManager &PM,
+// 						ArrayRef<llvm::PassBuilder::PipelineElement>) {
+// 					if (Name == "IRDumper") {
+// 					PM.addPass(IRDumper());
+// 					return true;
+// 					}
+// 					return false;
+// 					});
+// 		}};
+// }
 
 #ifndef LLVM_BYE_LINK_INTO_TOOLS
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo

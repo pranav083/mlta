@@ -46,41 +46,46 @@ pair<size_t, int> hashidx_c(size_t Hash, int Idx) {
 	return make_pair(Hash, Idx);
 }
 
-bool MLTA::fuzzyTypeMatch(Type *Ty1, Type *Ty2, 
-		Module *M1, Module *M2) {
+bool MLTA::fuzzyTypeMatch(Type *Ty1, Type *Ty2,
+						  Module *M1, Module *M2) {
 
 	if (Ty1 == Ty2)
 		return true;
 
-	while (Ty1->isPointerTy() && Ty2->isPointerTy()) {
-		Ty1 = Ty1->getPointerElementType();
-		Ty2 = Ty2->getPointerElementType();
+	// Keep unwrapping pointer layers while both are pointer types
+	while (Ty1->isPointerTy() && Ty2->isPointerTy())
+	{
+		auto *P1 = cast<PointerType>(Ty1);
+		auto *P2 = cast<PointerType>(Ty2);
+
+		// If either pointer is opaque, we can no longer peel off element types
+		if (P1->isPointerTy() || P2->isPointerTy())
+		{
+			// Decide your conservative or fallback policy:
+			// For instance, treat them as if they might match, or break out
+			break;
+		}
+
+		// Replace the old getPointerElementType() with:
+		Ty1 = P1->getNonOpaquePointerElementType();
+		Ty2 = P2->getNonOpaquePointerElementType();
 	}
 
-	if (Ty1->isStructTy() && Ty2->isStructTy() &&
-			(Ty1->getStructName().equals(Ty2->getStructName())))
-		return true;
-	if (Ty1->isIntegerTy() && Ty2->isIntegerTy() &&
-			Ty1->getIntegerBitWidth() == Ty2->getIntegerBitWidth())
-		return true;
-	// TODO: more types to be supported.
+	// Compare the "final" peeled-off types
+	if (Ty1->isStructTy() && Ty2->isStructTy())
+	{
+		if (Ty1->getStructName() == Ty2->getStructName())
+			return true;
+	}
 
-	// Make the type analysis conservative: assume general
-	// pointers, i.e., "void *" and "char *", are equivalent to 
-	// any pointer type and integer type.
-	if (
-			(Ty1 == Int8PtrTy[M1] &&
-			 (Ty2->isPointerTy() || Ty2 == IntPtrTy[M2])) 
-			||
-			(Ty2 == Int8PtrTy[M1] &&
-			 (Ty1->isPointerTy() || Ty1 == IntPtrTy[M2]))
-		 )
-		return true;
+	if (Ty1->isIntegerTy() && Ty2->isIntegerTy())
+	{
+		if (Ty1->getIntegerBitWidth() == Ty2->getIntegerBitWidth())
+			return true;
+	}
 
 	return false;
 }
-
-
 // Find targets of indirect calls based on function-type analysis: as
 // long as the number and type of parameters of a function matches
 // with the ones of the callsite, we say the function is a possible
@@ -266,13 +271,16 @@ bool MLTA::isCompositeType(Type *Ty) {
 
 Type *MLTA::getFuncPtrType(Value *V) {
 	Type *Ty = V->getType();
-	if (PointerType *PTy = dyn_cast<PointerType>(Ty)) {
-		Type *ETy = PTy->getPointerElementType();
-		if (ETy->isFunctionTy())
-			return ETy;
+	if (auto *PTy = dyn_cast<PointerType>(Ty)) {
+	  // Check for opaque
+	  if (!PTy->isPointerTy()) {
+		Type *ETy = PTy->getNonOpaquePointerElementType();
+		if (ETy->isFunctionTy()) {
+		  return ETy;
+		}
+	  }
 	}
-
-	return NULL;
+	return nullptr;
 }
 
 Value *MLTA::recoverBaseType(Value *V) {
@@ -385,11 +393,13 @@ bool MLTA::typeConfineInInitializer(GlobalVariable *GV) {
 				// if the type is a cap)
 				User *OU = dyn_cast<User>(O);
 				LU.push_back(OU);
-				if (GlobalVariable *GO = dyn_cast<GlobalVariable>(OU)) {
-					Type *Ty = POTy->getPointerElementType();
-					// FIXME: take it as a confinement instead of a cap
-					if (Ty->isStructTy())
+				if (auto *GO = dyn_cast<GlobalVariable>(OU)) {
+					if (!POTy->isPointerTy()) {
+					  Type *Ty = POTy->getNonOpaquePointerElementType();
+					  if (Ty->isStructTy()) {
 						typeCapSet.insert(typeHash(Ty));
+					  }
+					}
 				}
 			}
 			else {
@@ -608,10 +618,16 @@ bool MLTA::typePropInFunction(Function *F) {
 		Type *FromTy = Cast->getOperand(0)->getType();
 		Type *ToTy = Cast->getType();
 		if (FromTy->isPointerTy() && ToTy->isPointerTy()) {
-			Type *EFromTy = FromTy->getPointerElementType();
-			Type *EToTy = ToTy->getPointerElementType();
-			if (EFromTy->isStructTy() && EToTy->isStructTy()) {
-				//propagateType(Cast, EFromTy, -1);
+			auto *PFrom = cast<PointerType>(FromTy);
+			auto *PTo   = cast<PointerType>(ToTy);
+		
+				if (!PFrom->isPointerTy() && !PTo->isPointerTy()) {
+				Type *EFromTy = PFrom->getNonOpaquePointerElementType();
+				Type *EToTy   = PTo->getNonOpaquePointerElementType();
+			
+				if (EFromTy->isStructTy() && EToTy->isStructTy()) {
+					//propagateType(Cast, EFromTy, -1);
+				}
 			}
 		}
 	}
@@ -643,8 +659,21 @@ void MLTA::collectAliasStructPtr(Function *F) {
 			if (!ToTy->isPointerTy())
 				continue;
 			
-			if (!isCompositeType(ToTy->getPointerElementType()))
-				continue;
+				if (auto *PTy = dyn_cast<PointerType>(ToTy)) {
+					if (!PTy->isPointerTy()) {
+					  // This will still warn as 'deprecated' unless you enable typed pointers
+					  Type *ElemTy = PTy->getNonOpaquePointerElementType();
+					  if (!isCompositeType(ElemTy))
+						continue;
+					} else {
+					  // If pointer is opaque, we cannot tell if it's composite
+					  // TODO :Decide your fallback; for example:
+					  continue;  // or treat it as unknown
+					}
+				  } else {
+					// Not a pointer or something unexpected
+					continue;
+				  }
 
 			if (AliasMap.find(FromV) != AliasMap.end()) {
 				ToErase.insert(FromV);
@@ -887,13 +916,23 @@ Type *MLTA::getBaseType(Value *V, set<Value *> &Visited) {
 	}
 	// The value itself is a pointer to a composite type
 	else if (Ty->isPointerTy()) {
-
-		Type *ETy = Ty->getPointerElementType();
-		if (isCompositeType(ETy)) {
+		auto *PTy = cast<PointerType>(Ty);
+		if (!PTy->isPointerTy()) {
+		  Type *ETy = PTy->getNonOpaquePointerElementType();
+		  if (isCompositeType(ETy)) {
 			return ETy;
+		  } else {
+			if (Value *BV = recoverBaseType(V)) {
+			  // Next line also needs to check if pointer is opaque
+			  Type *BVTy = BV->getType();
+			  if (auto *P2 = dyn_cast<PointerType>(BVTy)) {
+				if (!P2->isPointerTy()) {
+				  return P2->getNonOpaquePointerElementType();
+				}
+			  }
+			}
+		  }
 		}
-		else if (Value *BV = recoverBaseType(V))
-			return BV->getType()->getPointerElementType();
 	}
 
 	if (BitCastOperator *BCO = 
@@ -956,7 +995,7 @@ bool MLTA::getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList) {
 		Instruction *I = dyn_cast<Instruction>(PO);
 		Value *BV = recoverBaseType(PO);
 		if (BV) {
-			ETy = BV->getType()->getPointerElementType();
+			ETy = BV->getType()->getNonOpaquePointerElementType();
 			APInt Offset (ConstI->getBitWidth(), 
 					ConstI->getZExtValue());
 			Type *BaseTy = ETy;
@@ -1032,7 +1071,7 @@ bool MLTA::getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList) {
 				if (PointerType *PTy 
 						= dyn_cast<PointerType>(BCO->getType())) {
 
-					Type *ToTy = PTy->getPointerElementType();
+					Type *ToTy = PTy->getNonOpaquePointerElementType();
 					if (Ty0 == ToTy)
 						TmpTyList.push_front(typeidx_c(ETy, 0));
 				}
@@ -1654,7 +1693,7 @@ bool MLTA::typeConfineInStore(StoreInst *SI) {
       StructType *STy =
         dyn_cast<StructType>(ParamTy->getPointerElementType());
       // "class" is treated as a struct
-      if (STy && STy->getName().startswith("class.")) {
+      if (STy && STy->getName().starts_swith("class.")) {
         User::op_iterator ie = GEP->idx_end();
         ConstantInt *ConstI = dyn_cast<ConstantInt>((--ie)->get());
         //Idx = ConstI->getSExtValue();
@@ -1774,7 +1813,7 @@ bool MLTA::typePropWithCast(User *Cast) {
 			StructType *STy =
 				dyn_cast<StructType>(ParamTy->getPointerElementType());
 			// "class" is treated as a struct
-			if (STy && STy->getName().startswith("class.")) {
+			if (STy && STy->getName().starts_with("class.")) {
 				User::op_iterator ie = GEP->idx_end();
 				ConstantInt *ConstI = dyn_cast<ConstantInt>((--ie)->get());
 				//Idx = ConstI->getSExtValue();

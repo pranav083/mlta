@@ -1,0 +1,546 @@
+diff --git a/IRDumper/Makefile b/IRDumper/Makefile
+index 9caeb3c..f222140 100644
+--- a/IRDumper/Makefile
++++ b/IRDumper/Makefile
+@@ -15,7 +15,7 @@ build_src_func = \
+ 			CC=clang CXX=clang++ \
+ 			cmake ${1} \
+ 				-DCMAKE_BUILD_TYPE=Release \
+-        -DCMAKE_CXX_FLAGS_RELEASE="-std=c++14 -fno-rtti -fpic -O3 -v" \
++        -DCMAKE_CXX_FLAGS_RELEASE="-std=c++17 -fno-rtti -fpic -O3 -v" \
+ 		&& make -j${NPROC})
+ 
+ all: dumper
+diff --git a/IRDumper/src/CMakeLists.txt b/IRDumper/src/CMakeLists.txt
+index 3fa0b40..5760ef7 100644
+--- a/IRDumper/src/CMakeLists.txt
++++ b/IRDumper/src/CMakeLists.txt
+@@ -1,7 +1,15 @@
+ cmake_minimum_required(VERSION 3.5.1)
+ project(DUMPER)
+ 
+-find_package(LLVM REQUIRED CONFIG)
++# Find LLVM 19+ with required components
++find_package(LLVM 19.1 REQUIRED CONFIG
++  COMPONENTS
++    Core
++    Passes
++    Analysis
++    Support
++    TransformUtils
++)
+ 
+ message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
+ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+@@ -12,3 +20,7 @@ include_directories(${LLVM_INCLUDE_DIRS})
+ add_definitions(${LLVM_DEFINITIONS})
+ 
+ add_subdirectory(lib)
++
++# For executables, use:
++# add_executable(dumper_main main.cpp)
++# target_link_libraries(dumper_main PRIVATE ${LLVM_LIBS} DumperObj)
+diff --git a/IRDumper/src/lib/IRDumper.cpp b/IRDumper/src/lib/IRDumper.cpp
+index c1b6660..cf47788 100644
+--- a/IRDumper/src/lib/IRDumper.cpp
++++ b/IRDumper/src/lib/IRDumper.cpp
+@@ -26,41 +26,53 @@ bool LegacyIRDumper::runOnModule(Module &M) {
+ 	return false;
+ }
+ 
+-char LegacyIRDumper::ID = 0;
+-static RegisterPass<LegacyIRDumper> X("IRDumper", "IRDumper pass", false, false);
+-
+-static void register_pass(const PassManagerBuilder &PMB,
+-		legacy::PassManagerBase &PM) {
+-	PM.add(new LegacyIRDumper());
+-}
+-
+-/* Legacy PM Registration */
+-static RegisterStandardPasses RegisterIRDumperPass(
+-		PassManagerBuilder::EP_OptimizerLast, register_pass);
+-static RegisterStandardPasses RegisterRDumperPassL0(
+-		PassManagerBuilder::EP_EnabledOnOptLevel0, register_pass);
+-
++/* New PM Registration */
++llvm::PassPluginLibraryInfo getIRDumperPluginInfo() {
++	return {LLVM_PLUGIN_API_VERSION, "IRDumper", LLVM_VERSION_STRING,
++	  [](PassBuilder &PB) {
++		PB.registerPipelineParsingCallback(
++			[](StringRef Name, ModulePassManager &PM,
++				ArrayRef<PassBuilder::PipelineElement>) {
++			  if (Name == "IRDumper") {
++				PM.addPass(IRDumper());
++				return true;
++			  }
++			  return false;
++			});
++		
++		// Register at specific pipeline points
++		PB.registerOptimizerLastEPCallback(
++			[](ModulePassManager &PM, OptimizationLevel Level) {
++			  PM.addPass(IRDumper());
++			});
++			
++		PB.registerPipelineStartEPCallback(
++			[](ModulePassManager &PM, OptimizationLevel Level) {
++			  PM.addPass(IRDumper()); 
++			});
++	  }};
++  }
+ 
+ PreservedAnalyses IRDumper::run(Module &M, ModuleAnalysisManager &) {
+ 	saveModule(M, M.getName());
+     return PreservedAnalyses::all();
+ }
+ 
+-/* New PM Registration */
+-llvm::PassPluginLibraryInfo getIRDumperPluginInfo() {
+-	return {LLVM_PLUGIN_API_VERSION, "IRDumper", LLVM_VERSION_STRING,
+-		[](PassBuilder &PB) {
+-			PB.registerPipelineParsingCallback(
+-					[](StringRef Name, llvm::ModulePassManager &PM,
+-						ArrayRef<llvm::PassBuilder::PipelineElement>) {
+-					if (Name == "IRDumper") {
+-					PM.addPass(IRDumper());
+-					return true;
+-					}
+-					return false;
+-					});
+-		}};
+-}
++// /* New PM Registration */
++// llvm::PassPluginLibraryInfo getIRDumperPluginInfo() {
++// 	return {LLVM_PLUGIN_API_VERSION, "IRDumper", LLVM_VERSION_STRING,
++// 		[](PassBuilder &PB) {
++// 			PB.registerPipelineParsingCallback(
++// 					[](StringRef Name, llvm::ModulePassManager &PM,
++// 						ArrayRef<llvm::PassBuilder::PipelineElement>) {
++// 					if (Name == "IRDumper") {
++// 					PM.addPass(IRDumper());
++// 					return true;
++// 					}
++// 					return false;
++// 					});
++// 		}};
++// }
+ 
+ #ifndef LLVM_BYE_LINK_INTO_TOOLS
+ extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
+diff --git a/IRDumper/src/lib/IRDumper.h b/IRDumper/src/lib/IRDumper.h
+index c635b77..726ef9d 100644
+--- a/IRDumper/src/lib/IRDumper.h
++++ b/IRDumper/src/lib/IRDumper.h
+@@ -22,13 +22,15 @@
+ #include "llvm/Support/CommandLine.h"
+ #include "llvm/Support/SourceMgr.h"
+ #include "llvm/Support/raw_ostream.h"
+-#include "llvm/Transforms/IPO/PassManagerBuilder.h"
++#include "llvm/Passes/StandardInstrumentations.h"
+ #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+ #include "llvm/Support/raw_ostream.h"
+ #include "llvm/Support/FileSystem.h"
+ #include "llvm/Bitcode/BitcodeWriter.h"
+ #include "llvm/Passes/PassBuilder.h"
+ #include "llvm/Passes/PassPlugin.h"
++#include "llvm/Passes/OptimizationLevel.h"
++
+ 
+ using namespace llvm;
+ using namespace std;
+diff --git a/Makefile b/Makefile
+index e5b75da..a1edf65 100644
+--- a/Makefile
++++ b/Makefile
+@@ -22,7 +22,7 @@ build_analyzer_func = \
+ 			cmake ${1}	\
+ 				-DCMAKE_BUILD_TYPE=Build \
+ 				-DLLVM_ENABLE_ASSERTIONS=ON \
+-				-DCMAKE_CXX_FLAGS_BUILD="-std=c++14 -fpic -fno-rtti -g" \
++				-DCMAKE_CXX_FLAGS_BUILD="-std=c++17 -fpic -fno-rtti -g" \
+ 		&& make -j${NPROC})
+ 
+ 
+diff --git a/irgen.sh b/irgen.sh
+old mode 100644
+new mode 100755
+index a6172a6..7d2eafb
+--- a/irgen.sh
++++ b/irgen.sh
+@@ -1,28 +1,94 @@
+-# Configurations
++#!/bin/bash
+ 
++# Configurations
+ KERNEL_SRC="$(pwd)/../kernel/linux-6.1.1"
+ IRDUMPER="$(pwd)/IRDumper/build/lib/libDumper.so"
+ CLANG="$(pwd)/llvm-project/prefix/bin/clang"
+ CONFIG="defconfig"
+-#CONFIG="allyesconfig"
++# CONFIG="allyesconfig"
+ 
+-# Use -Wno-error to avoid turning warnings into errors
+-NEW_CMD="\n\n\
+-KBUILD_USERCFLAGS += -Wno-error -g -Xclang -no-opaque-pointers -Xclang -flegacy-pass-manager -Xclang -load -Xclang $IRDUMPER\nKBUILD_CFLAGS += -Wno-error -g -Xclang -no-opaque-pointers -Xclang -flegacy-pass-manager -Xclang -load -Xclang $IRDUMPER"
+ 
+-# Back up Linux Makefile
+-cp $KERNEL_SRC/Makefile $KERNEL_SRC/Makefile.bak
++export CC="/home/mighty/script/ssrg/mlta/llvm-project/prefix/bin/clang"
++export LLVM=1  # This signals the build system to use LLVM/Clang
++
+ 
++# Use -Wno-error to avoid turning warnings into errors
++NEW_CMD="
++KBUILD_USERCFLAGS += -Wno-error -g -Xclang -load -Xclang $IRDUMPER
++KBUILD_CFLAGS += -Wno-error -g -Xclang -load -Xclang $IRDUMPER
++KBUILD_USERCFLAGS += -emit-llvm
++"
++
++# Backup Makefile if not already backed up
+ if [ ! -f "$KERNEL_SRC/Makefile.bak" ]; then
+-	echo "Back up Linux Makefile first"
+-	exit -1
++    echo "Backing up Linux Makefile..."
++    cp "$KERNEL_SRC/Makefile" "$KERNEL_SRC/Makefile.bak"
++fi
++
++# Append new flags to Makefile only if not already appended
++if ! grep -q "KBUILD_USERCFLAGS += -emit-llvm" "$KERNEL_SRC/Makefile"; then
++    echo "Updating Linux Makefile with custom flags..."
++    echo -e "$NEW_CMD" > "$KERNEL_SRC/IRDumper.cmd"
++    cat "$KERNEL_SRC/Makefile.bak" "$KERNEL_SRC/IRDumper.cmd" > "$KERNEL_SRC/Makefile"
++else
++    echo "Linux Makefile already updated."
+ fi
+ 
+-# The new flags better follow "# Add user supplied CPPFLAGS, AFLAGS and CFLAGS as the last assignments"
+-echo -e $NEW_CMD >$KERNEL_SRC/IRDumper.cmd
+-cat $KERNEL_SRC/Makefile.bak $KERNEL_SRC/IRDumper.cmd >$KERNEL_SRC/Makefile
++# Build kernel configuration
++cd "$KERNEL_SRC" || exit
++make "$CONFIG"
++echo "Compiler: $CLANG"
++echo "Flags added: $NEW_CMD"
++
++# Function to build bitcode
++build_bitcode() {
++    echo "Building with LLVM bitcode generation..."
++    cd "$KERNEL_SRC" || exit
++    # Use Clang consistently for all make calls
++    make CC="$CLANG" -j"$(nproc)" -k -i
++
++    echo "Generating bc.list..."
++    find "$KERNEL_SRC" -name "*.bc" > "$KERNEL_SRC/bc.list"
++    echo "Generated bc.list at $KERNEL_SRC/bc.list"
++}
++
++
++# Function to generate LLVM IR
++generate_llvm_ir() {
++    if [ ! -f "$KERNEL_SRC/bc.list" ]; then
++        echo "Error: bc.list not found. Run './irgen_multiple.sh bitcode' first."
++        exit 1
++    fi
++
++    echo "Generating LLVM IR from bitcode..."
++    while IFS= read -r bcfile; do
++        llvm-dis "$bcfile"
++    done < "$KERNEL_SRC/bc.list"
++    echo "LLVM IR generation complete."
++}
++
++# Function to clean build
++clean_build() {
++    echo "Cleaning build directory and removing bc.list..."
++    cd "$KERNEL_SRC" || exit
++    make clean
++    rm -f "$KERNEL_SRC/bc.list"
++    echo "Clean-up complete."
++}
+ 
+-cd $KERNEL_SRC && make $CONFIG
+-echo $CLANG
+-echo $NEW_CMD
+-make CC=$CLANG -j`nproc` -k -i
+\ No newline at end of file
++# Handle script arguments
++case "$1" in
++    bitcode)
++        build_bitcode
++        ;;
++    llvm-ir)
++        generate_llvm_ir
++        ;;
++    clean)
++        clean_build
++        ;;
++    *)
++        echo "Usage: $0 {bitcode|llvm-ir|clean}"
++        exit 1
++        ;;
++esac
+diff --git a/src/lib/CallGraph.cc b/src/lib/CallGraph.cc
+index 3ca4e8b..3b1ea22 100644
+--- a/src/lib/CallGraph.cc
++++ b/src/lib/CallGraph.cc
+@@ -156,7 +156,7 @@ bool CallGraphPass::doInitialization(Module *M) {
+ 	++ MIdx;
+ 
+ 	DLMap[M] = &(M->getDataLayout());
+-	Int8PtrTy[M] = Type::getInt8PtrTy(M->getContext());
++	Int8PtrTy[M] = llvm::Type::getInt8Ty(M->getContext())->getPointerTo();
+ 	IntPtrTy[M] = DLMap[M]->getIntPtrType(M->getContext());
+ 
+ 	set<User *>CastSet;
+@@ -190,8 +190,8 @@ bool CallGraphPass::doInitialization(Module *M) {
+ 			size_t FuncHash = funcHash(&F, false);
+ 			Ctx->sigFuncsMap[FuncHash].insert(&F);
+ 			StringRef FName = F.getName();
+-      if (FName.startswith("__x64") ||
+-          FName.startswith("__ia32")) {
++      if (FName.starts_with("__x64") ||
++          FName.starts_with("__ia32")) {
+         OutScopeFuncs.insert(&F);
+       }
+ 		}
+diff --git a/src/lib/Common.h b/src/lib/Common.h
+index 0acab58..c32bf5a 100644
+--- a/src/lib/Common.h
++++ b/src/lib/Common.h
+@@ -3,7 +3,7 @@
+ 
+ #include <llvm/IR/Module.h>
+ #include <llvm/Analysis/TargetLibraryInfo.h>
+-#include <llvm/ADT/Triple.h>
++#include <llvm/TargetParser/Triple.h>
+ #include <llvm/Support/raw_ostream.h>
+ #include <llvm/Support/CommandLine.h>
+ #include <llvm/IR/DebugInfo.h>
+diff --git a/src/lib/MLTA.cc b/src/lib/MLTA.cc
+index ca38170..0272d99 100644
+--- a/src/lib/MLTA.cc
++++ b/src/lib/MLTA.cc
+@@ -46,41 +46,46 @@ pair<size_t, int> hashidx_c(size_t Hash, int Idx) {
+ 	return make_pair(Hash, Idx);
+ }
+ 
+-bool MLTA::fuzzyTypeMatch(Type *Ty1, Type *Ty2, 
+-		Module *M1, Module *M2) {
++bool MLTA::fuzzyTypeMatch(Type *Ty1, Type *Ty2,
++						  Module *M1, Module *M2) {
+ 
+ 	if (Ty1 == Ty2)
+ 		return true;
+ 
+-	while (Ty1->isPointerTy() && Ty2->isPointerTy()) {
+-		Ty1 = Ty1->getPointerElementType();
+-		Ty2 = Ty2->getPointerElementType();
++	// Keep unwrapping pointer layers while both are pointer types
++	while (Ty1->isPointerTy() && Ty2->isPointerTy())
++	{
++		auto *P1 = cast<PointerType>(Ty1);
++		auto *P2 = cast<PointerType>(Ty2);
++
++		// If either pointer is opaque, we can no longer peel off element types
++		if (P1->isPointerTy() || P2->isPointerTy())
++		{
++			// Decide your conservative or fallback policy:
++			// For instance, treat them as if they might match, or break out
++			break;
++		}
++
++		// Replace the old getPointerElementType() with:
++		Ty1 = P1->getNonOpaquePointerElementType();
++		Ty2 = P2->getNonOpaquePointerElementType();
+ 	}
+ 
+-	if (Ty1->isStructTy() && Ty2->isStructTy() &&
+-			(Ty1->getStructName().equals(Ty2->getStructName())))
+-		return true;
+-	if (Ty1->isIntegerTy() && Ty2->isIntegerTy() &&
+-			Ty1->getIntegerBitWidth() == Ty2->getIntegerBitWidth())
+-		return true;
+-	// TODO: more types to be supported.
+-
+-	// Make the type analysis conservative: assume general
+-	// pointers, i.e., "void *" and "char *", are equivalent to 
+-	// any pointer type and integer type.
+-	if (
+-			(Ty1 == Int8PtrTy[M1] &&
+-			 (Ty2->isPointerTy() || Ty2 == IntPtrTy[M2])) 
+-			||
+-			(Ty2 == Int8PtrTy[M1] &&
+-			 (Ty1->isPointerTy() || Ty1 == IntPtrTy[M2]))
+-		 )
+-		return true;
++	// Compare the "final" peeled-off types
++	if (Ty1->isStructTy() && Ty2->isStructTy())
++	{
++		if (Ty1->getStructName() == Ty2->getStructName())
++			return true;
++	}
++
++	if (Ty1->isIntegerTy() && Ty2->isIntegerTy())
++	{
++		if (Ty1->getIntegerBitWidth() == Ty2->getIntegerBitWidth())
++			return true;
++	}
+ 
+ 	return false;
+ }
+-
+-
+ // Find targets of indirect calls based on function-type analysis: as
+ // long as the number and type of parameters of a function matches
+ // with the ones of the callsite, we say the function is a possible
+@@ -266,13 +271,16 @@ bool MLTA::isCompositeType(Type *Ty) {
+ 
+ Type *MLTA::getFuncPtrType(Value *V) {
+ 	Type *Ty = V->getType();
+-	if (PointerType *PTy = dyn_cast<PointerType>(Ty)) {
+-		Type *ETy = PTy->getPointerElementType();
+-		if (ETy->isFunctionTy())
+-			return ETy;
++	if (auto *PTy = dyn_cast<PointerType>(Ty)) {
++	  // Check for opaque
++	  if (!PTy->isPointerTy()) {
++		Type *ETy = PTy->getNonOpaquePointerElementType();
++		if (ETy->isFunctionTy()) {
++		  return ETy;
++		}
++	  }
+ 	}
+-
+-	return NULL;
++	return nullptr;
+ }
+ 
+ Value *MLTA::recoverBaseType(Value *V) {
+@@ -385,11 +393,13 @@ bool MLTA::typeConfineInInitializer(GlobalVariable *GV) {
+ 				// if the type is a cap)
+ 				User *OU = dyn_cast<User>(O);
+ 				LU.push_back(OU);
+-				if (GlobalVariable *GO = dyn_cast<GlobalVariable>(OU)) {
+-					Type *Ty = POTy->getPointerElementType();
+-					// FIXME: take it as a confinement instead of a cap
+-					if (Ty->isStructTy())
++				if (auto *GO = dyn_cast<GlobalVariable>(OU)) {
++					if (!POTy->isPointerTy()) {
++					  Type *Ty = POTy->getNonOpaquePointerElementType();
++					  if (Ty->isStructTy()) {
+ 						typeCapSet.insert(typeHash(Ty));
++					  }
++					}
+ 				}
+ 			}
+ 			else {
+@@ -608,10 +618,16 @@ bool MLTA::typePropInFunction(Function *F) {
+ 		Type *FromTy = Cast->getOperand(0)->getType();
+ 		Type *ToTy = Cast->getType();
+ 		if (FromTy->isPointerTy() && ToTy->isPointerTy()) {
+-			Type *EFromTy = FromTy->getPointerElementType();
+-			Type *EToTy = ToTy->getPointerElementType();
+-			if (EFromTy->isStructTy() && EToTy->isStructTy()) {
+-				//propagateType(Cast, EFromTy, -1);
++			auto *PFrom = cast<PointerType>(FromTy);
++			auto *PTo   = cast<PointerType>(ToTy);
++		
++				if (!PFrom->isPointerTy() && !PTo->isPointerTy()) {
++				Type *EFromTy = PFrom->getNonOpaquePointerElementType();
++				Type *EToTy   = PTo->getNonOpaquePointerElementType();
++			
++				if (EFromTy->isStructTy() && EToTy->isStructTy()) {
++					//propagateType(Cast, EFromTy, -1);
++				}
+ 			}
+ 		}
+ 	}
+@@ -643,8 +659,21 @@ void MLTA::collectAliasStructPtr(Function *F) {
+ 			if (!ToTy->isPointerTy())
+ 				continue;
+ 			
+-			if (!isCompositeType(ToTy->getPointerElementType()))
+-				continue;
++				if (auto *PTy = dyn_cast<PointerType>(ToTy)) {
++					if (!PTy->isPointerTy()) {
++					  // This will still warn as 'deprecated' unless you enable typed pointers
++					  Type *ElemTy = PTy->getNonOpaquePointerElementType();
++					  if (!isCompositeType(ElemTy))
++						continue;
++					} else {
++					  // If pointer is opaque, we cannot tell if it's composite
++					  // TODO :Decide your fallback; for example:
++					  continue;  // or treat it as unknown
++					}
++				  } else {
++					// Not a pointer or something unexpected
++					continue;
++				  }
+ 
+ 			if (AliasMap.find(FromV) != AliasMap.end()) {
+ 				ToErase.insert(FromV);
+@@ -887,13 +916,23 @@ Type *MLTA::getBaseType(Value *V, set<Value *> &Visited) {
+ 	}
+ 	// The value itself is a pointer to a composite type
+ 	else if (Ty->isPointerTy()) {
+-
+-		Type *ETy = Ty->getPointerElementType();
+-		if (isCompositeType(ETy)) {
++		auto *PTy = cast<PointerType>(Ty);
++		if (!PTy->isPointerTy()) {
++		  Type *ETy = PTy->getNonOpaquePointerElementType();
++		  if (isCompositeType(ETy)) {
+ 			return ETy;
++		  } else {
++			if (Value *BV = recoverBaseType(V)) {
++			  // Next line also needs to check if pointer is opaque
++			  Type *BVTy = BV->getType();
++			  if (auto *P2 = dyn_cast<PointerType>(BVTy)) {
++				if (!P2->isPointerTy()) {
++				  return P2->getNonOpaquePointerElementType();
++				}
++			  }
++			}
++		  }
+ 		}
+-		else if (Value *BV = recoverBaseType(V))
+-			return BV->getType()->getPointerElementType();
+ 	}
+ 
+ 	if (BitCastOperator *BCO = 
+@@ -956,7 +995,7 @@ bool MLTA::getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList) {
+ 		Instruction *I = dyn_cast<Instruction>(PO);
+ 		Value *BV = recoverBaseType(PO);
+ 		if (BV) {
+-			ETy = BV->getType()->getPointerElementType();
++			ETy = BV->getType()->getNonOpaquePointerElementType();
+ 			APInt Offset (ConstI->getBitWidth(), 
+ 					ConstI->getZExtValue());
+ 			Type *BaseTy = ETy;
+@@ -1032,7 +1071,7 @@ bool MLTA::getGEPLayerTypes(GEPOperator *GEP, list<typeidx_t> &TyList) {
+ 				if (PointerType *PTy 
+ 						= dyn_cast<PointerType>(BCO->getType())) {
+ 
+-					Type *ToTy = PTy->getPointerElementType();
++					Type *ToTy = PTy->getNonOpaquePointerElementType();
+ 					if (Ty0 == ToTy)
+ 						TmpTyList.push_front(typeidx_c(ETy, 0));
+ 				}
+@@ -1654,7 +1693,7 @@ bool MLTA::typeConfineInStore(StoreInst *SI) {
+       StructType *STy =
+         dyn_cast<StructType>(ParamTy->getPointerElementType());
+       // "class" is treated as a struct
+-      if (STy && STy->getName().startswith("class.")) {
++      if (STy && STy->getName().starts_swith("class.")) {
+         User::op_iterator ie = GEP->idx_end();
+         ConstantInt *ConstI = dyn_cast<ConstantInt>((--ie)->get());
+         //Idx = ConstI->getSExtValue();
+@@ -1774,7 +1813,7 @@ bool MLTA::typePropWithCast(User *Cast) {
+ 			StructType *STy =
+ 				dyn_cast<StructType>(ParamTy->getPointerElementType());
+ 			// "class" is treated as a struct
+-			if (STy && STy->getName().startswith("class.")) {
++			if (STy && STy->getName().starts_with("class.")) {
+ 				User::op_iterator ie = GEP->idx_end();
+ 				ConstantInt *ConstI = dyn_cast<ConstantInt>((--ie)->get());
+ 				//Idx = ConstI->getSExtValue();
