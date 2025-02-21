@@ -3,8 +3,10 @@
 
 # LLVM version: 15.0.0 older version at checkout only
 # latest LLVM 19.1.7  build at tag 
+
+# only for docker build
 ROOT=$(pwd)
-git clone -b llvmorg-19.1.7 --single-branch https://github.com/llvm/llvm-project.git
+# git clone -b llvmorg-19.1.7 --single-branch https://github.com/llvm/llvm-project.git
 cd $ROOT/llvm-project
 #git checkout e758b77161a7
 git checkout llvmorg-19.1.7
