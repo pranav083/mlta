@@ -1,41 +1,26 @@
 # Define the compiler
-CLANG := $(shell pwd)/../../llvm-project/prefix/bin/clang
+CC = gcc
 
-# Flags for generating LLVM bitcode
-BC_FLAGS := -emit-llvm -c
+# Compiler flags
+CFLAGS = -Wall -Wextra -O2
 
-# Source files
-SOURCES := multilayer_fp.c
+# Target executable name
+TARGET = multilayer_fp
 
-# Derived names
-BC_FILES := $(SOURCES:.c=.bc)
-LLVM_IR_FILES := $(SOURCES:.c=.ll)
+# Build rules
+all: $(TARGET)
 
-# Target files
-TARGET := multilayer_fp
-BC_LIST := bc.list
-
-# Default target
-all: $(TARGET) $(BC_FILES) $(LLVM_IR_FILES) $(BC_LIST)
-
-# Build the executable
-$(TARGET): $(SOURCES)
-	$(CLANG) $(SOURCES) -o $(TARGET)
-
-# Generate LLVM Bitcode
-%.bc: %.c
-	$(CLANG) $(BC_FLAGS) $< -o $@
-
-# Generate LLVM IR
-%.ll: %.bc
-	llvm-dis $< -o $@
-
-# Generate `bc.list`
-$(BC_LIST): $(BC_FILES)
-	@rm -f $(BC_LIST)
-	@for bc in $(BC_FILES); do \
-		echo "$$PWD/$$bc" >> $(BC_LIST); \
-	done
+$(TARGET): multilayer_fp.c
+	$(CC) $(CFLAGS) -o $(TARGET) multilayer_fp.c
 
 clean:
-	rm -f $(TARGET) $(BC_FILES) $(LLVM_IR_FILES) $(BC_LIST)
+	rm -f $(TARGET)
+
+
+KBUILD_USERCFLAGS += -Wno-error -g -Xclang -no-opaque-pointers -Xclang -flegacy-pass-manager -Xclang -load -Xclang /home/mighty/mlta/IRDumper/build/lib/libDumper.so
+KBUILD_CFLAGS += -Wno-error -g -Xclang -no-opaque-pointers -Xclang -flegacy-pass-manager -Xclang -load -Xclang /home/mighty/mlta/IRDumper/build/lib/libDumper.so
+
+KBUILD_USERCFLAGS += -Wno-error -g -Xclang -no-opaque-pointers -Xclang -flegacy-pass-manager -Xclang -load -Xclang /home/mighty/script/ssrg/mlta/IRDumper/build/lib/libDumper.so
+KBUILD_CFLAGS += -Wno-error -g -Xclang -no-opaque-pointers -Xclang -flegacy-pass-manager -Xclang -load -Xclang /home/mighty/script/ssrg/mlta/IRDumper/build/lib/libDumper.so
+KBUILD_USERCFLAGS += -emit-llvm
+

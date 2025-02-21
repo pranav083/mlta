@@ -13,11 +13,18 @@ export LLVM=1  # This signals the build system to use LLVM/Clang
 
 
 # Use -Wno-error to avoid turning warnings into errors
-NEW_CMD="
+# Replace your current NEW_CMD with:
+NEW_CMD=" 
 KBUILD_USERCFLAGS += -Wno-error -g -Xclang -load -Xclang $IRDUMPER -emit-llvm
 KBUILD_CFLAGS += -Wno-error -g -Xclang -load -Xclang $IRDUMPER -emit-llvm
 KBUILD_USERCFLAGS += -emit-llvm
 "
+
+
+if [ ! -f "$KERNEL_SRC/IRDumper.cmd" ]; then
+	   echo "IRDumper.cmd not found. Creating..."	
+	   rm  "$KERNEL_SRC/IRDumper.cmd"
+fi
 
 # Backup Makefile if not already backed up
 if [ ! -f "$KERNEL_SRC/Makefile.bak" ]; then
@@ -36,7 +43,8 @@ fi
 
 # Build kernel configuration
 cd "$KERNEL_SRC" || exit
-make "$CONFIG"
+make clean 
+make "$CONFIG" 
 echo "Compiler: $CLANG"
 echo "Flags added: $NEW_CMD"
 
@@ -45,7 +53,7 @@ build_bitcode() {
     echo "Building with LLVM bitcode generation..."
     cd "$KERNEL_SRC" || exit
     # Use Clang consistently for all make calls
-    make CC="$CLANG" -j"$(nproc)" -k -i
+    make CC="$CLANG" -j"$(nproc)" -k -i KCFLAGS="-emit-llvm -Wno-error -g" 
 
     echo "Generating bc.list..."
     find "$KERNEL_SRC" -name "*.bc" > "$KERNEL_SRC/bc.list"

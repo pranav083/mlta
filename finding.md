@@ -146,6 +146,45 @@ Aborted (core dumped)
 -   **Crash Due to Opaque Pointers:** The tool encountered an assertion failure when attempting to retrieve the type of an opaque pointer.
 -   **Analysis Incomplete:** The analysis failed, resulting in a segmentation fault.
 
+
+```bash
+# using clang 19.1.7 the issue of opaque pointer is fixed.
+mighty@precision:~/script/ssrg/mlta$ ./build/lib/kanalyzer @mlta_test_code/test-high/bc.list 
+Total 1 file(s)
+[CallGraph] Initializing 1 modules #0 Initializing: /home/mighty/script/ssrg/mlta/mlta_test_code/test-high/multilayer_fp.bc
+.
+[CallGraph / 1] [1 / 1] [/home/mighty/script/ssrg/mlta/mlta_test_code/test-high/multilayer_fp.bc]
+
+         Indirect-call targets: (4)
+
+
+         Indirect-call targets: (4)
+
+
+         Indirect-call targets: (4)
+
+
+         Indirect-call targets: (4)
+
+
+[CallGraph] Updated in 0 modules.
+[CallGraph] Postprocessing ...
+[CallGraph] Done!
+
+
+@@ Total number of final callees: 16.
+############## Result Statistics ##############
+# Number of indirect calls:                     4
+# Number of indirect calls with targets:        4
+# Number of indirect-call targets:              16
+# Number of address-taken functions:            4
+# Number of multi-layer calls:                  4
+# Number of multi-layer targets:                16
+# Number of one-layer calls:                    0
+# Number of one-layer targets:                  0
+```
+
+
 ----------
 
 ## **Opaque Pointers in LLVM 15+**
