@@ -147,6 +147,8 @@ Aborted (core dumped)
 -   **Analysis Incomplete:** The analysis failed, resulting in a segmentation fault.
 
 
+
+## New Test Results:
 ```bash
 # using clang 19.1.7 the issue of opaque pointer is fixed.
 mighty@precision:~/script/ssrg/mlta$ ./build/lib/kanalyzer @mlta_test_code/test-high/bc.list 
